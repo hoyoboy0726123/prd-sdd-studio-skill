@@ -10,9 +10,17 @@ This is a faithful port of the encoding used by the original AI DevStudio web ap
 
 Standard library only (zlib + urllib). No pip install required.
 
+CJK note: the public PlantUML server intermittently drops CJK (Chinese/Japanese/
+Korean) glyphs when rasterizing PNG (~25% of renders, position varies). SVG is
+never affected (text is embedded as <text>, not rasterized server-side). For PNG
+this script self-corrects: it fetches several independent renders (each with a
+cache-bust marker) and keeps the largest/most-complete one (--attempts, default
+4). This is probabilistic mitigation; use --format svg for a guaranteed copy.
+
 Usage:
     python render_puml.py <input.puml> [--format png|svg] [--output <path>]
                           [--server <url>] [--timeout <seconds>] [--print-url]
+                          [--attempts <N>]
 
 Exit codes:
     0  success (image written)
@@ -92,8 +100,19 @@ def clean_source(code: str) -> str:
     return clean
 
 
-def encode_plantuml(code: str) -> str:
+def inject_cachebust(source: str, marker: int) -> str:
+    """Insert a no-op PlantUML comment right after @startuml so the encoded
+    URL differs (busts the server cache) WITHOUT changing the rendered image.
+    `'` begins a single-line comment in PlantUML, so this is visually inert."""
+    if marker <= 0:
+        return source
+    return source.replace("@startuml", f"@startuml\n' cachebust {marker}", 1)
+
+
+def encode_plantuml(code: str, marker: int = 0) -> str:
     source = clean_source(code)
+    if marker:
+        source = inject_cachebust(source, marker)
     raw = source.encode("utf-8")
     compressed = zlib.compress(raw, 9)
     return encode64(compressed)
@@ -101,6 +120,38 @@ def encode_plantuml(code: str) -> str:
 
 def build_url(server: str, fmt: str, encoded: str) -> str:
     return f"{server.rstrip('/')}/{fmt}/~1{encoded}"
+
+
+def fetch_url(url: str, timeout: float) -> bytes:
+    """Fetch a URL and return the body bytes (raises on HTTP/URL error)."""
+    req = urllib.request.Request(url, headers={"User-Agent": "prd-sdd-studio/1.0"})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return resp.read()
+
+
+def fetch_png_selfcorrecting(server: str, code: str, timeout: float,
+                             attempts: int) -> tuple:
+    """Self-correction for the PlantUML server's intermittent CJK glyph-drop
+    when rasterizing PNG: fetch up to `attempts` independent renders (each with
+    a distinct cache-bust marker so the server re-renders rather than returning
+    a cached copy) and keep the LARGEST result. A complete render has more black
+    glyph pixels than one that silently dropped characters, so it is reliably
+    larger in bytes. This drives the ~25% per-render drop rate down to ~0.25^N.
+
+    Returns (best_bytes, sizes_list). Stdlib only — it cannot verify glyphs
+    pixel-by-pixel (no image lib), so this is probabilistic mitigation; SVG is
+    the only 100%-correct format.
+    """
+    best = b""
+    sizes = []
+    for i in range(max(1, attempts)):
+        encoded = encode_plantuml(code, marker=i)
+        url = build_url(server, "png", encoded)
+        data = fetch_url(url, timeout)
+        sizes.append(len(data))
+        if len(data) > len(best):
+            best = data
+    return best, sizes
 
 
 def main() -> int:
@@ -115,6 +166,11 @@ def main() -> int:
                         help="Network timeout in seconds (default: 30)")
     parser.add_argument("--print-url", action="store_true",
                         help="Also print the encoded server URL")
+    parser.add_argument("--attempts", type=int, default=4,
+                        help="PNG self-correction: fetch N independent renders "
+                             "and keep the largest/most-complete (default: 4). "
+                             "Mitigates the server's intermittent CJK glyph-drop. "
+                             "Ignored for SVG (always correct).")
     args = parser.parse_args()
 
     if not os.path.isfile(args.input):
@@ -139,10 +195,19 @@ def main() -> int:
 
     output = args.output or (os.path.splitext(args.input)[0] + "." + args.format)
 
-    req = urllib.request.Request(url, headers={"User-Agent": "prd-sdd-studio/1.0"})
     try:
-        with urllib.request.urlopen(req, timeout=args.timeout) as resp:
-            data = resp.read()
+        if args.format == "png" and args.attempts > 1:
+            # Self-correcting fetch: the server intermittently drops CJK glyphs
+            # when rasterizing PNG. Fetch several independent renders and keep
+            # the largest (most complete). See fetch_png_selfcorrecting().
+            data, sizes = fetch_png_selfcorrecting(
+                args.server, code, args.timeout, args.attempts)
+            if len(set(sizes)) > 1:
+                print(f"NOTE: PNG self-correction - render sizes {sizes}, "
+                      f"kept largest ({len(data)} bytes) as most-complete. "
+                      f"(For a guaranteed-correct copy, use --format svg.)")
+        else:
+            data = fetch_url(url, args.timeout)
     except urllib.error.HTTPError as exc:
         print(f"ERROR: PlantUML server returned HTTP {exc.code}. "
               f"The diagram source likely has a syntax error. "
