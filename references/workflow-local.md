@@ -50,8 +50,8 @@
 依序執行,任何一步發現異常就**停下來問**,不要硬幹:
 
 1. **先 `git status`** —— 把這次要進版控的改動**完整列給使用者看**,讓他確認範圍。
-2. **`git branch --show-current`** —— 確認目前分支。
-   - **絕對禁止**直接 commit/push 到 `main`(或 `master`)。若目前在 main,先建議切到 `feat/<描述>` 分支再 commit。
+2. **`git branch --show-current`** —— 確認目前分支,並**尊重使用者既有的 git 習慣**。
+   - **分支策略交給使用者**:本 skill **不強制**切換分支,也**不限制**只能用 feature 分支。可直接在使用者選定的分支(**含 `main`/`master`**)上提交。若使用者有自己的分支慣例,沿用即可。
    - **絕對禁止** `git push --force`(任何分支)。
    - **絕對禁止**主動 `git push`,除非使用者明確要求;本 skill 預設只做**本地 commit**。
 3. **若該專案還不是 git repo**:詢問是否 `git init`(並建議建立合適的 `.gitignore`)。
@@ -104,7 +104,7 @@
    → 我執行修改
    → 寫 / 追加 CHANGELOG.md（先標 ⏸ 未版控、⏸ 未同步）
    → 【主動問】要 git 同步嗎？
-        ├─ 是 → git status 給看 → 確認分支(非 main) → commit → 回填 CHANGELOG Git 欄位
+        ├─ 是 → git status 給看 → 確認分支(尊重使用者設定) → commit → 回填 CHANGELOG Git 欄位
         │        → 【接著問】要同步 PRD/SDD 嗎？
         │             ├─ 是 → 提 diff → 使用者確認 → 寫回文件 + 更新「最後更新」日期
         │             │        → 回填 CHANGELOG 文件同步欄位 → 【問】文件變更也要 commit 嗎？
