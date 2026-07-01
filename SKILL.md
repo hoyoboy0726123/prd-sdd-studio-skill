@@ -115,17 +115,22 @@ description: >-
 
 每當任一提示詞產出 PlantUML 原始碼:
 
-1. 把 `@startuml ... @enduml` 原始碼寫到 `docs/diagrams/<有意義的名字>.puml`(例 `concept-architecture.puml`、`technical-architecture.puml`)。
-2. **自動執行 render 腳本**直接吐出圖檔,使用者完全不用手動轉:
+**重要原則:`.puml` 原始碼才是主產物,圖檔(PNG/SVG)只是「選配」。出圖絕不可阻斷 PRD/SDD/TASK 主流程。**
+
+1. 把 `@startuml ... @enduml` 原始碼寫到 `docs/diagrams/<有意義的名字>.puml`(例 `concept-architecture.puml`、`technical-architecture.puml`)。**這一步一定要先做且一定成功。**
+2. **嘗試**執行 render 腳本出圖(離線優先,腳本會自己選路):
    ```
    python "<skill>/scripts/render_puml.py" "<專案>/docs/diagrams/<name>.puml"
    ```
-   - 預設輸出 PNG 到同目錄同名 `<name>.png`;要 SVG 加 `--format svg`。
-   - 成功 → 告知使用者圖檔路徑(可用 Read 預覽確認)。
-   - 失敗(無網路/語法錯,exit code 2)→ 保留 `.puml`,把錯誤回報給使用者,並可檢查 PlantUML 語法(常見錯:用了 `!include`、識別碼含中文)後重產。
-3. 圖的提示詞規則(禁 `!include`/外部庫、`!theme plain`、識別碼不用中文、標籤可中文)務必遵守,否則渲染會失敗。
+   出圖策略:**正常只送 1 次對外請求要 PNG(好讀);那次失敗就自動退回抓一次 SVG;連 SVG 也失敗才離線保留 .puml。** 不做多次重試(避免像資料外流)。
+   完整優先順序:①本地 `plantuml.jar`(離線,需 Java)→ ②`--offline` 保留 .puml → ③對外要 PNG(單次)→ 失敗退 SVG(單次)→ 仍失敗則離線指引。可用 `PLANTUML_SERVER` 指向內網伺服器。
+   - 成功 → 告知使用者圖檔路徑(可用 Read 預覽確認;若退成 SVG 會標明)。
+   - **exit code 2(對外連線失敗 / 被安全機制封鎖 / 無網路)→ 不是致命錯誤**:`.puml` 已保留,把腳本印出的「離線出圖指引」轉達使用者,**照常繼續**(進 SDD / TASK / 開發),不要重試送 plantuml.com、不要卡住。
+   - 語法錯 → 檢查 PlantUML(常見錯:`!include`、識別碼含中文)後重產。
+3. **受限 / 離線環境(有出口封鎖或資料外流防護,plantuml.com 會被硬擋)**:不要反覆嘗試對外送出。直接用 `--offline` 產出(保留 .puml + 指引),或事先放 `scripts/plantuml.jar` 走本地渲染。SDD §2.2 本就內含 ASCII 架構圖,圖檔缺席不影響文件完整性。
+4. 圖的提示詞規則(禁 `!include`/外部庫、`!theme plain`、識別碼不用中文、標籤可中文)務必遵守,否則渲染會失敗。
 
-> 腳本沿用原 app `PlantUMLRenderer.tsx` 的 deflate + 自訂 base64 編碼,純 Python 標準庫,零安裝依賴,需要網路連線 plantuml.com。
+> 腳本純 Python 標準庫、零安裝依賴。**對外送到 plantuml.com 屬選配**;離線環境可放 `plantuml.jar`(需 Java)或設 `PLANTUML_SERVER` 指向內網伺服器,或直接 `--offline` 只留 `.puml`。送出的內容僅為模組名稱/技術棧等結構性文字,不含程式碼或機密——但仍應尊重各主機的安全政策,被擋就走離線路徑。
 
 ---
 
